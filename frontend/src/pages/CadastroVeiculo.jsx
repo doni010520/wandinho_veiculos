@@ -171,7 +171,8 @@ export default function CadastroVeiculo() {
     try {
       const submitData = new FormData();
       
-      setUploadProgress(20);
+      // Etapa 1: Preparando dados (10%)
+      setUploadProgress(10);
       
       Object.keys(formData).forEach(key => {
         if (key === 'opcionais') {
@@ -188,31 +189,44 @@ export default function CadastroVeiculo() {
         }
       });
 
-      setUploadProgress(40);
+      // Etapa 2: Adicionando fotos (20%)
+      setUploadProgress(20);
 
       fotos.forEach((foto, index) => {
         submitData.append('fotos', foto);
       });
 
-      setUploadProgress(60);
-
+      // Etapa 3: Enviando para servidor (20% -> 70%)
       await api.post('/veiculos', submitData, {
         headers: {
           'Content-Type': 'multipart/form-data'
         },
         onUploadProgress: (progressEvent) => {
-          const percentCompleted = Math.round((progressEvent.loaded * 40) / progressEvent.total) + 60;
+          // Upload HTTP vai de 20% a 70%
+          const percentCompleted = Math.round((progressEvent.loaded * 50) / progressEvent.total) + 20;
           setUploadProgress(percentCompleted);
         }
       });
 
-      setUploadProgress(100);
-      
-      // Aguardar um pouco para mostrar 100%
+      // Etapa 4: Processando no backend (85%)
+      setUploadProgress(85);
       await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Etapa 5: Finalizando (95%)
+      setUploadProgress(95);
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      // Etapa 6: Concluído! (100%)
+      setUploadProgress(100);
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Fechar modal ANTES do alert
+      setLoading(false);
+      setUploadProgress(0);
       
       alert('Veículo cadastrado com sucesso!');
       
+      // Limpar formulário
       setFormData({
         tipo_veiculo: 'Carro',
         cilindradas: '',
@@ -245,14 +259,15 @@ export default function CadastroVeiculo() {
       });
       setFotos([]);
       setPreviewFotos([]);
-      setUploadProgress(0);
       
     } catch (error) {
       console.error('Erro ao cadastrar veículo:', error);
-      alert('Erro ao cadastrar veículo: ' + (error.response?.data?.error || error.message));
-      setUploadProgress(0);
-    } finally {
+      
+      // Fechar modal antes de mostrar erro
       setLoading(false);
+      setUploadProgress(0);
+      
+      alert('Erro ao cadastrar veículo: ' + (error.response?.data?.error || error.message));
     }
   };
 
@@ -804,9 +819,10 @@ export default function CadastroVeiculo() {
               <div className="text-center">
                 <p className="text-blue-300 font-medium">
                   {uploadProgress < 20 && '📋 Preparando dados...'}
-                  {uploadProgress >= 20 && uploadProgress < 40 && '🖼️ Processando fotos...'}
-                  {uploadProgress >= 40 && uploadProgress < 60 && '📁 Criando pasta no Drive...'}
-                  {uploadProgress >= 60 && uploadProgress < 100 && '☁️ Fazendo upload das fotos...'}
+                  {uploadProgress >= 20 && uploadProgress < 70 && '☁️ Enviando para o servidor...'}
+                  {uploadProgress >= 70 && uploadProgress < 85 && '📁 Criando pasta no Drive...'}
+                  {uploadProgress >= 85 && uploadProgress < 95 && '🖼️ Fazendo upload das fotos...'}
+                  {uploadProgress >= 95 && uploadProgress < 100 && '💾 Salvando no banco de dados...'}
                   {uploadProgress === 100 && '✅ Concluído!'}
                 </p>
               </div>
