@@ -1,4 +1,5 @@
 import { google } from 'googleapis';
+import { Readable } from 'stream';
 
 // IDs das pastas principais (você vai criar manualmente no Drive)
 const PARENT_FOLDERS = {
@@ -59,9 +60,10 @@ class GoogleDriveService {
       parents: [folderId]
     };
 
+    // 🔧 CORREÇÃO: Converter Buffer em Stream
     const media = {
       mimeType: file.mimetype,
-      body: file.buffer
+      body: Readable.from(file.buffer)
     };
 
     const uploadedFile = await this.drive.files.create({
