@@ -85,8 +85,7 @@ class GoogleDriveService {
       }
     });
 
-    // 🔧 CORREÇÃO: Usar formato de URL que funciona melhor
-    // Este formato força o download direto da imagem
+    // Usar formato de URL que funciona melhor
     const photoUrl = `https://drive.google.com/thumbnail?id=${uploadedFile.data.id}&sz=w1000`;
     
     return photoUrl;
@@ -106,7 +105,7 @@ class GoogleDriveService {
     }));
   }
 
-  // 🆕 NOVO: Método para deletar pasta do veículo
+  // Método para deletar pasta do veículo
   async deleteVehicleFolder(folderId) {
     try {
       await this.drive.files.delete({
