@@ -16,9 +16,36 @@ const opcionaisDisponiveis = [
   'Teto solar'
 ];
 
+// Função para formatar quilometragem
+const formatKm = (value) => {
+  // Remove tudo que não é número
+  const numbers = value.replace(/\D/g, '');
+  // Adiciona pontos a cada 3 dígitos
+  return numbers.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+};
+
+// Função para formatar preço
+const formatMoney = (value) => {
+  // Remove tudo que não é número
+  const numbers = value.replace(/\D/g, '');
+  // Converte para número e divide por 100 para ter centavos
+  const amount = parseFloat(numbers) / 100;
+  // Formata como moeda brasileira
+  return amount.toLocaleString('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+};
+
+// Função para remover formatação e pegar valor numérico
+const unformatNumber = (value) => {
+  return value.replace(/\D/g, '');
+};
+
 export default function CadastroVeiculo() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [fotos, setFotos] = useState([]);
   const [previewFotos, setPreviewFotos] = useState([]);
   const [formData, setFormData] = useState({
@@ -31,6 +58,7 @@ export default function CadastroVeiculo() {
     ano_fabricacao: '',
     final_placa: '',
     quilometragem: '',
+    quilometragem_display: '', // Para exibição formatada
     combustivel: 'Flex',
     cambio: 'Manual',
     cor: 'Branco',
@@ -45,6 +73,7 @@ export default function CadastroVeiculo() {
     tem_historico_manutencao: false,
     detalhes_manutencao: '',
     preco: '',
+    preco_display: '', // Para exibição formatada
     opcionais: [],
     tem_outros_opcionais: false,
     outros_opcionais: ''
@@ -55,6 +84,32 @@ export default function CadastroVeiculo() {
     setFormData(prev => ({
       ...prev,
       [name]: type === 'checkbox' ? checked : value
+    }));
+  };
+
+  // Handler especial para quilometragem
+  const handleKmChange = (e) => {
+    const value = e.target.value;
+    const unformatted = unformatNumber(value);
+    const formatted = formatKm(value);
+    
+    setFormData(prev => ({
+      ...prev,
+      quilometragem: unformatted,
+      quilometragem_display: formatted
+    }));
+  };
+
+  // Handler especial para preço
+  const handlePrecoChange = (e) => {
+    const value = e.target.value;
+    const unformatted = unformatNumber(value);
+    const formatted = formatMoney(value);
+    
+    setFormData(prev => ({
+      ...prev,
+      preco: unformatted,
+      preco_display: formatted
     }));
   };
 
@@ -119,9 +174,13 @@ export default function CadastroVeiculo() {
     }
 
     setLoading(true);
+    setUploadProgress(0);
 
     try {
       const submitData = new FormData();
+      
+      // Simular progresso - Etapa 1: Preparando dados (20%)
+      setUploadProgress(20);
       
       // Adicionar dados do veículo
       Object.keys(formData).forEach(key => {
@@ -130,22 +189,40 @@ export default function CadastroVeiculo() {
         } else if (key === 'cor') {
           const corFinal = formData.cor === 'Outro' ? formData.cor_outro : formData.cor;
           submitData.append(key, corFinal);
-        } else if (key !== 'cor_outro' && key !== 'tem_outros_opcionais') {
+        } else if (key === 'quilometragem') {
+          // Enviar valor sem formatação
+          submitData.append(key, formData.quilometragem);
+        } else if (key === 'preco') {
+          // Enviar valor em centavos sem formatação
+          submitData.append(key, (parseInt(formData.preco) / 100).toFixed(2));
+        } else if (!['cor_outro', 'tem_outros_opcionais', 'quilometragem_display', 'preco_display'].includes(key)) {
           submitData.append(key, formData[key]);
         }
       });
+
+      // Simular progresso - Etapa 2: Adicionando fotos (40%)
+      setUploadProgress(40);
 
       // Adicionar fotos
       fotos.forEach((foto, index) => {
         submitData.append('fotos', foto);
       });
 
+      // Simular progresso - Etapa 3: Enviando (60%)
+      setUploadProgress(60);
+
       await api.post('/veiculos', submitData, {
         headers: {
           'Content-Type': 'multipart/form-data'
+        },
+        onUploadProgress: (progressEvent) => {
+          // Progresso real do upload (60% a 100%)
+          const percentCompleted = Math.round((progressEvent.loaded * 40) / progressEvent.total) + 60;
+          setUploadProgress(percentCompleted);
         }
       });
 
+      setUploadProgress(100);
       alert('Veículo cadastrado com sucesso!');
       
       // Limpar formulário
@@ -159,6 +236,7 @@ export default function CadastroVeiculo() {
         ano_fabricacao: '',
         final_placa: '',
         quilometragem: '',
+        quilometragem_display: '',
         combustivel: 'Flex',
         cambio: 'Manual',
         cor: 'Branco',
@@ -173,16 +251,19 @@ export default function CadastroVeiculo() {
         tem_historico_manutencao: false,
         detalhes_manutencao: '',
         preco: '',
+        preco_display: '',
         opcionais: [],
         tem_outros_opcionais: false,
         outros_opcionais: ''
       });
       setFotos([]);
       setPreviewFotos([]);
+      setUploadProgress(0);
       
     } catch (error) {
       console.error('Erro ao cadastrar veículo:', error);
       alert('Erro ao cadastrar veículo: ' + (error.response?.data?.error || error.message));
+      setUploadProgress(0);
     } finally {
       setLoading(false);
     }
@@ -192,6 +273,29 @@ export default function CadastroVeiculo() {
     <div className="max-w-4xl mx-auto p-6">
       <div className="bg-white rounded-lg shadow-lg p-8">
         <h1 className="text-3xl font-bold mb-8 text-gray-800">Cadastrar Veículo</h1>
+        
+        {/* Barra de Progresso */}
+        {loading && (
+          <div className="mb-6">
+            <div className="flex justify-between mb-2">
+              <span className="text-sm font-medium text-blue-700">Cadastrando veículo...</span>
+              <span className="text-sm font-medium text-blue-700">{uploadProgress}%</span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
+              <div 
+                className="bg-blue-600 h-4 rounded-full transition-all duration-300 ease-out"
+                style={{ width: `${uploadProgress}%` }}
+              />
+            </div>
+            <p className="text-xs text-gray-600 mt-2">
+              {uploadProgress < 20 && 'Preparando dados...'}
+              {uploadProgress >= 20 && uploadProgress < 40 && 'Processando fotos...'}
+              {uploadProgress >= 40 && uploadProgress < 60 && 'Criando pasta no Drive...'}
+              {uploadProgress >= 60 && uploadProgress < 100 && 'Fazendo upload das fotos...'}
+              {uploadProgress === 100 && 'Concluído!'}
+            </p>
+          </div>
+        )}
         
         <form onSubmit={handleSubmit} className="space-y-6">
           
@@ -205,7 +309,8 @@ export default function CadastroVeiculo() {
               value={formData.tipo_veiculo}
               onChange={handleChange}
               required
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              disabled={loading}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
             >
               <option value="Carro">Carro</option>
               <option value="Picape">Picape</option>
@@ -227,7 +332,8 @@ export default function CadastroVeiculo() {
                 onChange={handleChange}
                 placeholder="Ex: 125cc, 300cc"
                 required
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                disabled={loading}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
               />
             </div>
           )}
@@ -245,7 +351,8 @@ export default function CadastroVeiculo() {
                   value={formData.marca}
                   onChange={handleChange}
                   required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  disabled={loading}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                 />
               </div>
 
@@ -257,7 +364,8 @@ export default function CadastroVeiculo() {
                   value={formData.modelo}
                   onChange={handleChange}
                   required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  disabled={loading}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                 />
               </div>
 
@@ -268,7 +376,8 @@ export default function CadastroVeiculo() {
                   name="versao"
                   value={formData.versao}
                   onChange={handleChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  disabled={loading}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                 />
               </div>
 
@@ -280,10 +389,11 @@ export default function CadastroVeiculo() {
                   value={formData.ano_modelo}
                   onChange={handleChange}
                   required
+                  disabled={loading}
                   min="1900"
                   max={new Date().getFullYear() + 1}
                   placeholder="Ex: 2024"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                 />
               </div>
 
@@ -295,10 +405,11 @@ export default function CadastroVeiculo() {
                   value={formData.ano_fabricacao}
                   onChange={handleChange}
                   required
+                  disabled={loading}
                   min="1900"
                   max={new Date().getFullYear()}
                   placeholder="Ex: 2024"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                 />
               </div>
 
@@ -308,7 +419,8 @@ export default function CadastroVeiculo() {
                   name="final_placa"
                   value={formData.final_placa}
                   onChange={handleChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  disabled={loading}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                 >
                   <option value="">Selecione</option>
                   {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(num => (
@@ -327,13 +439,15 @@ export default function CadastroVeiculo() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Quilometragem *</label>
                 <input
-                  type="number"
-                  name="quilometragem"
-                  value={formData.quilometragem}
-                  onChange={handleChange}
+                  type="text"
+                  value={formData.quilometragem_display}
+                  onChange={handleKmChange}
                   required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  disabled={loading}
+                  placeholder="Ex: 120.000"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                 />
+                <p className="text-xs text-gray-500 mt-1">{formData.quilometragem_display} km</p>
               </div>
 
               <div>
@@ -343,7 +457,8 @@ export default function CadastroVeiculo() {
                   value={formData.combustivel}
                   onChange={handleChange}
                   required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  disabled={loading}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                 >
                   <option value="Flex">Flex</option>
                   <option value="Gasolina">Gasolina</option>
@@ -360,7 +475,8 @@ export default function CadastroVeiculo() {
                   value={formData.cambio}
                   onChange={handleChange}
                   required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  disabled={loading}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                 >
                   <option value="Manual">Manual</option>
                   <option value="Automático">Automático</option>
@@ -376,7 +492,8 @@ export default function CadastroVeiculo() {
                   value={formData.cor}
                   onChange={handleChange}
                   required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  disabled={loading}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                 >
                   <option value="Branco">Branco</option>
                   <option value="Preto">Preto</option>
@@ -397,7 +514,8 @@ export default function CadastroVeiculo() {
                     value={formData.cor_outro}
                     onChange={handleChange}
                     required
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    disabled={loading}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                   />
                 </div>
               )}
@@ -416,7 +534,8 @@ export default function CadastroVeiculo() {
                   value={formData.estado}
                   onChange={handleChange}
                   required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  disabled={loading}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                 >
                   <option value="Novo">Novo</option>
                   <option value="Semi-novo">Semi-novo</option>
@@ -431,7 +550,8 @@ export default function CadastroVeiculo() {
                   value={formData.unico_dono}
                   onChange={handleChange}
                   required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  disabled={loading}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                 >
                   <option value="true">Sim</option>
                   <option value="false">Não</option>
@@ -445,7 +565,8 @@ export default function CadastroVeiculo() {
                   value={formData.ipva_pago}
                   onChange={handleChange}
                   required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  disabled={loading}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                 >
                   <option value="true">Sim</option>
                   <option value="false">Não</option>
@@ -459,7 +580,8 @@ export default function CadastroVeiculo() {
                   value={formData.licenciado}
                   onChange={handleChange}
                   required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  disabled={loading}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                 >
                   <option value="true">Sim</option>
                   <option value="false">Não</option>
@@ -479,7 +601,8 @@ export default function CadastroVeiculo() {
                   name="tem_garantia_fabrica"
                   checked={formData.tem_garantia_fabrica}
                   onChange={handleChange}
-                  className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                  disabled={loading}
+                  className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 disabled:bg-gray-100"
                 />
                 <span className="ml-2 text-gray-700">Tem Garantia de Fábrica</span>
               </label>
@@ -495,7 +618,8 @@ export default function CadastroVeiculo() {
                     value={formData.validade_garantia}
                     onChange={handleChange}
                     required
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    disabled={loading}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                   />
                 </div>
               )}
@@ -506,7 +630,8 @@ export default function CadastroVeiculo() {
                   name="tem_historico_manutencao"
                   checked={formData.tem_historico_manutencao}
                   onChange={handleChange}
-                  className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                  disabled={loading}
+                  className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 disabled:bg-gray-100"
                 />
                 <span className="ml-2 text-gray-700">Tem Histórico de Manutenção</span>
               </label>
@@ -521,8 +646,9 @@ export default function CadastroVeiculo() {
                     value={formData.detalhes_manutencao}
                     onChange={handleChange}
                     required
+                    disabled={loading}
                     rows={3}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                   />
                 </div>
               )}
@@ -535,16 +661,20 @@ export default function CadastroVeiculo() {
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Preço (R$) *</label>
-                <input
-                  type="number"
-                  name="preco"
-                  value={formData.preco}
-                  onChange={handleChange}
-                  required
-                  step="0.01"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
+                <label className="block text-sm font-medium text-gray-700 mb-2">Preço *</label>
+                <div className="relative">
+                  <span className="absolute left-4 top-2 text-gray-600 font-medium">R$</span>
+                  <input
+                    type="text"
+                    value={formData.preco_display}
+                    onChange={handlePrecoChange}
+                    required
+                    disabled={loading}
+                    placeholder="0,00"
+                    className="w-full pl-12 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                  />
+                </div>
+                <p className="text-xs text-gray-500 mt-1">R$ {formData.preco_display}</p>
               </div>
 
               <div>
@@ -554,7 +684,8 @@ export default function CadastroVeiculo() {
                   value={formData.aceita_troca}
                   onChange={handleChange}
                   required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  disabled={loading}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                 >
                   <option value="true">Sim</option>
                   <option value="false">Não</option>
@@ -573,7 +704,8 @@ export default function CadastroVeiculo() {
                       type="checkbox"
                       checked={formData.opcionais.includes(opcional)}
                       onChange={() => handleOpcionaisChange(opcional)}
-                      className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                      disabled={loading}
+                      className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 disabled:bg-gray-100"
                     />
                     <span className="ml-2 text-gray-700">{opcional}</span>
                   </label>
@@ -585,7 +717,8 @@ export default function CadastroVeiculo() {
                     name="tem_outros_opcionais"
                     checked={formData.tem_outros_opcionais}
                     onChange={handleChange}
-                    className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                    disabled={loading}
+                    className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 disabled:bg-gray-100"
                   />
                   <span className="ml-2 text-gray-700">Outros</span>
                 </label>
@@ -597,8 +730,9 @@ export default function CadastroVeiculo() {
                       value={formData.outros_opcionais}
                       onChange={handleChange}
                       placeholder="Descreva outros opcionais..."
+                      disabled={loading}
                       rows={2}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                     />
                   </div>
                 )}
@@ -621,6 +755,7 @@ export default function CadastroVeiculo() {
                       accept="image/*"
                       multiple
                       onChange={handleFotosChange}
+                      disabled={loading}
                       className="hidden"
                     />
                     📁 Upload de Fotos
@@ -634,6 +769,7 @@ export default function CadastroVeiculo() {
                       accept="image/*"
                       capture="environment"
                       onChange={handleCameraCapture}
+                      disabled={loading}
                       className="hidden"
                     />
                     📷 Abrir Câmera
@@ -653,7 +789,8 @@ export default function CadastroVeiculo() {
                       <button
                         type="button"
                         onClick={() => removerFoto(index)}
-                        className="absolute top-1 right-1 bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center hover:bg-red-700"
+                        disabled={loading}
+                        className="absolute top-1 right-1 bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center hover:bg-red-700 disabled:bg-gray-400"
                       >
                         ×
                       </button>
