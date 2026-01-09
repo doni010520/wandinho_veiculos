@@ -13,7 +13,15 @@ const upload = multer({ storage: multer.memoryStorage() });
 app.use(cors());
 app.use(express.json());
 
-// Health check
+// Health checks
+app.get('/', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    message: 'Backend Veículo Manager rodando',
+    timestamp: new Date().toISOString()
+  });
+});
+
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
@@ -214,6 +222,12 @@ app.delete('/api/veiculos/:id', async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, () => {
-  console.log(`Backend rodando na porta ${PORT}`);
+// Teste de conexão com banco
+db.query('SELECT NOW()')
+  .then(() => console.log('✅ Banco de dados conectado'))
+  .catch(err => console.error('❌ Erro ao conectar no banco:', err));
+
+// Importante: bind em 0.0.0.0 para funcionar no Easypanel
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Backend rodando na porta ${PORT}`);
 });
