@@ -85,8 +85,9 @@ class GoogleDriveService {
       }
     });
 
-    // Retornar URL direta da imagem
-    const photoUrl = `https://drive.google.com/uc?export=view&id=${uploadedFile.data.id}`;
+    // 🔧 CORREÇÃO: Usar formato de URL que funciona melhor
+    // Este formato força o download direto da imagem
+    const photoUrl = `https://drive.google.com/thumbnail?id=${uploadedFile.data.id}&sz=w1000`;
     
     return photoUrl;
   }
@@ -101,8 +102,21 @@ class GoogleDriveService {
     return response.data.files.map(file => ({
       id: file.id,
       name: file.name,
-      url: `https://drive.google.com/uc?export=view&id=${file.id}`
+      url: `https://drive.google.com/thumbnail?id=${file.id}&sz=w1000`
     }));
+  }
+
+  // 🆕 NOVO: Método para deletar pasta do veículo
+  async deleteVehicleFolder(folderId) {
+    try {
+      await this.drive.files.delete({
+        fileId: folderId
+      });
+      console.log(`✅ Pasta ${folderId} deletada do Google Drive`);
+    } catch (error) {
+      console.error(`❌ Erro ao deletar pasta ${folderId}:`, error.message);
+      throw error;
+    }
   }
 }
 
