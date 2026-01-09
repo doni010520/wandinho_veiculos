@@ -1,7 +1,7 @@
 import { google } from 'googleapis';
 import { Readable } from 'stream';
 
-// IDs das pastas principais (você vai criar manualmente no Drive)
+// IDs das pastas principais
 const PARENT_FOLDERS = {
   'Carro': process.env.GOOGLE_DRIVE_FOLDER_CARRO,
   'Picape': process.env.GOOGLE_DRIVE_FOLDER_PICAPE,
@@ -11,14 +11,18 @@ const PARENT_FOLDERS = {
 
 class GoogleDriveService {
   constructor() {
-    const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
-    
-    this.auth = new google.auth.GoogleAuth({
-      credentials,
-      scopes: ['https://www.googleapis.com/auth/drive.file'],
+    // Usar OAuth em vez de Service Account
+    this.oauth2Client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      'http://localhost'
+    );
+
+    this.oauth2Client.setCredentials({
+      refresh_token: process.env.GOOGLE_REFRESH_TOKEN
     });
     
-    this.drive = google.drive({ version: 'v3', auth: this.auth });
+    this.drive = google.drive({ version: 'v3', auth: this.oauth2Client });
   }
 
   async createVehicleFolder(tipoVeiculo, marca, modelo, versao, ano) {
@@ -60,7 +64,7 @@ class GoogleDriveService {
       parents: [folderId]
     };
 
-    // 🔧 CORREÇÃO: Converter Buffer em Stream
+    // Converter Buffer em Stream
     const media = {
       mimeType: file.mimetype,
       body: Readable.from(file.buffer)
