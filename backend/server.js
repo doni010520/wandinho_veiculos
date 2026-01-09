@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
 import dotenv from 'dotenv';
-import db from './db.js';
+import supabase from './supabase.js';
 import googleDrive from './googleDrive.js';
 
 dotenv.config();
@@ -22,17 +22,19 @@ app.get('/', (req, res) => {
   });
 });
 
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok' });
+app.get('/api/health', async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('veiculos').select('count').limit(1);
+    if (error) throw error;
+    res.json({ status: 'ok', database: 'connected' });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
 });
 
 // Criar veículo
 app.post('/api/veiculos', upload.array('fotos', 15), async (req, res) => {
-  const client = await db.connect();
-  
   try {
-    await client.query('BEGIN');
-
     const {
       tipo_veiculo,
       cilindradas,
@@ -70,82 +72,114 @@ app.post('/api/veiculos', upload.array('fotos', 15), async (req, res) => {
       ano_modelo
     );
 
-    // Inserir veículo no banco
-    const veiculoResult = await client.query(
-      `INSERT INTO veiculos (
-        tipo_veiculo, cilindradas, google_drive_folder_id, marca, modelo, versao,
-        ano_modelo, ano_fabricacao, final_placa, quilometragem, combustivel,
-        cambio, cor, estado, unico_dono, ipva_pago, licenciado, aceita_troca,
-        tem_garantia_fabrica, validade_garantia, tem_historico_manutencao,
-        detalhes_manutencao, preco, opcionais, outros_opcionais, user_id
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
-      RETURNING *`,
-      [
-        tipo_veiculo, cilindradas, folderId, marca, modelo, versao,
-        ano_modelo, ano_fabricacao, final_placa, quilometragem, combustivel,
-        cambio, cor, estado, unico_dono === 'true', ipva_pago === 'true',
-        licenciado === 'true', aceita_troca === 'true',
-        tem_garantia_fabrica === 'true', validade_garantia || null,
-        tem_historico_manutencao === 'true', detalhes_manutencao || null,
-        preco, opcionais ? JSON.parse(opcionais) : [], outros_opcionais || null,
-        user_id || null
-      ]
-    );
+    // Inserir veículo no Supabase
+    const { data: veiculo, error: veiculoError } = await supabase
+      .from('veiculos')
+      .insert({
+        tipo_veiculo,
+        cilindradas,
+        google_drive_folder_id: folderId,
+        marca,
+        modelo,
+        versao,
+        ano_modelo,
+        ano_fabricacao,
+        final_placa,
+        quilometragem,
+        combustivel,
+        cambio,
+        cor,
+        estado,
+        unico_dono: unico_dono === 'true',
+        ipva_pago: ipva_pago === 'true',
+        licenciado: licenciado === 'true',
+        aceita_troca: aceita_troca === 'true',
+        tem_garantia_fabrica: tem_garantia_fabrica === 'true',
+        validade_garantia: validade_garantia || null,
+        tem_historico_manutencao: tem_historico_manutencao === 'true',
+        detalhes_manutencao: detalhes_manutencao || null,
+        preco,
+        opcionais: opcionais ? JSON.parse(opcionais) : [],
+        outros_opcionais: outros_opcionais || null,
+        user_id: user_id || null
+      })
+      .select()
+      .single();
 
-    const veiculoId = veiculoResult.rows[0].id;
+    if (veiculoError) throw veiculoError;
+
+    const veiculoId = veiculo.id;
 
     // Upload das fotos
     if (req.files && req.files.length > 0) {
+      const fotosData = [];
+      
       for (let i = 0; i < req.files.length; i++) {
         const file = req.files[i];
         const photoUrl = await googleDrive.uploadPhoto(folderId, file, i);
-
-        await client.query(
-          'INSERT INTO veiculo_fotos (veiculo_id, url_foto, ordem) VALUES ($1, $2, $3)',
-          [veiculoId, photoUrl, i]
-        );
+        
+        fotosData.push({
+          veiculo_id: veiculoId,
+          url_foto: photoUrl,
+          ordem: i
+        });
       }
-    }
 
-    await client.query('COMMIT');
+      const { error: fotosError } = await supabase
+        .from('veiculo_fotos')
+        .insert(fotosData);
+
+      if (fotosError) throw fotosError;
+    }
 
     res.json({
       success: true,
-      veiculo: veiculoResult.rows[0]
+      veiculo
     });
 
   } catch (error) {
-    await client.query('ROLLBACK');
     console.error('Erro ao criar veículo:', error);
     res.status(500).json({
       success: false,
       error: error.message
     });
-  } finally {
-    client.release();
   }
 });
 
 // Listar veículos
 app.get('/api/veiculos', async (req, res) => {
   try {
-    const result = await db.query(
-      `SELECT v.*, 
-        COALESCE(
-          json_agg(
-            json_build_object('id', f.id, 'url', f.url_foto, 'ordem', f.ordem)
-            ORDER BY f.ordem
-          ) FILTER (WHERE f.id IS NOT NULL),
-          '[]'
-        ) as fotos
-      FROM veiculos v
-      LEFT JOIN veiculo_fotos f ON v.id = f.veiculo_id
-      WHERE v.status = 'disponivel'
-      GROUP BY v.id
-      ORDER BY v.created_at DESC`
-    );
+    const { data: veiculos, error: veiculosError } = await supabase
+      .from('veiculos')
+      .select(`
+        *,
+        veiculo_fotos (
+          id,
+          url_foto,
+          ordem
+        )
+      `)
+      .eq('status', 'disponivel')
+      .order('created_at', { ascending: false });
 
-    res.json(result.rows);
+    if (veiculosError) throw veiculosError;
+
+    // Formatar fotos para manter compatibilidade
+    const veiculosFormatados = veiculos.map(veiculo => ({
+      ...veiculo,
+      fotos: veiculo.veiculo_fotos
+        .sort((a, b) => a.ordem - b.ordem)
+        .map(foto => ({
+          id: foto.id,
+          url: foto.url_foto,
+          ordem: foto.ordem
+        }))
+    }));
+
+    // Remove veiculo_fotos do objeto (mantém só fotos)
+    veiculosFormatados.forEach(v => delete v.veiculo_fotos);
+
+    res.json(veiculosFormatados);
   } catch (error) {
     console.error('Erro ao listar veículos:', error);
     res.status(500).json({ error: error.message });
@@ -157,27 +191,41 @@ app.get('/api/veiculos/:id', async (req, res) => {
   try {
     const { id } = req.params;
 
-    const result = await db.query(
-      `SELECT v.*, 
-        COALESCE(
-          json_agg(
-            json_build_object('id', f.id, 'url', f.url_foto, 'ordem', f.ordem)
-            ORDER BY f.ordem
-          ) FILTER (WHERE f.id IS NOT NULL),
-          '[]'
-        ) as fotos
-      FROM veiculos v
-      LEFT JOIN veiculo_fotos f ON v.id = f.veiculo_id
-      WHERE v.id = $1
-      GROUP BY v.id`,
-      [id]
-    );
+    const { data: veiculo, error: veiculoError } = await supabase
+      .from('veiculos')
+      .select(`
+        *,
+        veiculo_fotos (
+          id,
+          url_foto,
+          ordem
+        )
+      `)
+      .eq('id', id)
+      .single();
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Veículo não encontrado' });
+    if (veiculoError) {
+      if (veiculoError.code === 'PGRST116') {
+        return res.status(404).json({ error: 'Veículo não encontrado' });
+      }
+      throw veiculoError;
     }
 
-    res.json(result.rows[0]);
+    // Formatar fotos
+    const veiculoFormatado = {
+      ...veiculo,
+      fotos: veiculo.veiculo_fotos
+        .sort((a, b) => a.ordem - b.ordem)
+        .map(foto => ({
+          id: foto.id,
+          url: foto.url_foto,
+          ordem: foto.ordem
+        }))
+    };
+
+    delete veiculoFormatado.veiculo_fotos;
+
+    res.json(veiculoFormatado);
   } catch (error) {
     console.error('Erro ao buscar veículo:', error);
     res.status(500).json({ error: error.message });
@@ -190,16 +238,24 @@ app.patch('/api/veiculos/:id/status', async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
 
-    const result = await db.query(
-      'UPDATE veiculos SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
-      [status, id]
-    );
+    const { data, error } = await supabase
+      .from('veiculos')
+      .update({ 
+        status,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select()
+      .single();
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Veículo não encontrado' });
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return res.status(404).json({ error: 'Veículo não encontrado' });
+      }
+      throw error;
     }
 
-    res.json(result.rows[0]);
+    res.json(data);
   } catch (error) {
     console.error('Erro ao atualizar status:', error);
     res.status(500).json({ error: error.message });
@@ -211,7 +267,12 @@ app.delete('/api/veiculos/:id', async (req, res) => {
   try {
     const { id } = req.params;
 
-    await db.query('DELETE FROM veiculos WHERE id = $1', [id]);
+    const { error } = await supabase
+      .from('veiculos')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
 
     res.json({ success: true });
   } catch (error) {
@@ -222,10 +283,10 @@ app.delete('/api/veiculos/:id', async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 
-// Teste de conexão com banco
-db.query('SELECT NOW()')
-  .then(() => console.log('✅ Banco de dados conectado'))
-  .catch(err => console.error('❌ Erro ao conectar no banco:', err));
+// Teste de conexão com Supabase
+supabase.from('veiculos').select('count').limit(1)
+  .then(() => console.log('✅ Supabase conectado'))
+  .catch(err => console.error('❌ Erro ao conectar no Supabase:', err.message));
 
 // Importante: bind em 0.0.0.0 para funcionar no Easypanel
 app.listen(PORT, '0.0.0.0', () => {
