@@ -6,6 +6,10 @@ COPY package*.json ./
 RUN npm install
 
 COPY . .
+
+# Hardcoded - muda aqui se mudar a URL do backend
+ENV VITE_API_URL=https://benitech-wandinho.x3t6qy.easypanel.host/api
+
 RUN npm run build
 
 FROM node:18-alpine
