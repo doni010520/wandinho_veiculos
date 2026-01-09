@@ -11,7 +11,7 @@ const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
 
 app.use(cors());
-app.use(express.json());
+
 
 // Health checks
 app.get('/', (req, res) => {
@@ -22,7 +22,7 @@ app.get('/', (req, res) => {
   });
 });
 
-app.get('/api/health', async (req, res) => {
+app.get('/api/health', express.json(), async (req, res) => {
   try {
     const { data, error } = await supabase.from('veiculos').select('count').limit(1);
     if (error) throw error;
@@ -233,7 +233,7 @@ app.get('/api/veiculos/:id', async (req, res) => {
 });
 
 // Atualizar status do veículo
-app.patch('/api/veiculos/:id/status', async (req, res) => {
+app.patch('/api/veiculos/:id/status', express.json(), async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
